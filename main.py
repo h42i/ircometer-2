@@ -3,7 +3,6 @@ import time
 import gc
 import apa
 import pwm
-import irc
 from umqtt.simple import MQTTClient
 
 # Config
@@ -12,7 +11,8 @@ wifi_psk = "bugsbunny"
 
 mqtt_server = "mqtt.hasi"
 mqtt_client_name = "ircometer"
-mqtt_topic = "hasi/lights/ircometer"
+mqtt_state_topic = "hasi/lights/ircometer"
+mqtt_msg_topic = "hasi/telegram/message"
 
 lights_on = True
 mqtt_client = None
@@ -68,7 +68,8 @@ def setup():
     global wifi
     global wifi_ssid
     global wifi_psk
-    global mqtt_topic
+    global mqtt_state_topic
+    global mqtt_msg_topic
     global mqtt_server
     global mqtt_client
     global mqtt_client_name
@@ -87,11 +88,11 @@ def setup():
     mqtt_client = MQTTClient(mqtt_client_name, mqtt_server)
     mqtt_client.set_callback(mqtt_callback)
     mqtt_client.connect()
-    mqtt_client.subscribe(bytes(mqtt_topic, "utf-8"))
-
-    irc.connect("irc.hackint.org",6667,"#hasi","hasi_ircometer")
+    mqtt_client.subscribe(bytes(mqtt_state_topic, "utf-8"))
+    mqtt_client.subscribe(bytes(mqtt_msg_topic, "utf-8"))
 
 def set_amplitude(p):
+    p = min(p, 1.0)
     if lights_on:
         apa.amplitude(p)
         pwm.amplitude(p)
@@ -101,16 +102,23 @@ def set_amplitude(p):
 
 def mqtt_callback(topic, msg):
     global lights_on
+    global activity
 
     message = str(msg, "utf-8")
+    topic = str(topic, "utf-8")
 
-    if message == "on" and not lights_on:
-        print("mqtt on")
-        play_animation()
-        lights_on = True
-    elif message == "off" and lights_on:
-        print("mqtt off")
-        lights_on = False
+    if topic == mqtt_state_topic:
+        if message == "on" and not lights_on:
+            print("mqtt on")
+            play_animation()
+            lights_on = True
+        elif message == "off" and lights_on:
+            print("mqtt off")
+            lights_on = False
+    elif topic == mqtt_msg_topic:
+        print("received a message")
+        if activity < 2.0:
+            activity += 0.1
 
 def loop():
     global wifi
@@ -125,9 +133,6 @@ def loop():
             mqtt_client.check_msg()
             if activity >= 0.0001:
                 activity -= 0.0001
-            if irc.do_server() == 1 and activity <= 0.9:
-                activity += 0.1
-            #print("activity: " + str(activity))
             set_amplitude(activity)
             time.sleep(0.1)
 
